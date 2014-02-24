@@ -1,87 +1,80 @@
 # Poly type manipulations
 
 module Polynomial
-#todo: division
-#todo: sparse polynomials?
 
-export Poly, polyval, polyint, polydir, poly, roots
+export Poly, polyval, polyint, polydir, poly, roots, papply
 
-import Base.length, Base.endof, Base.ref, Base.assign, Base.copy, Base.zero, Base.one
+import Base.length, Base.endof, Base.getindex, Base.setindex!, Base.copy, Base.zero, Base.one, Base.promote_rule
 import Base.show, Base.*, Base./, Base.-, Base.+, Base.==
 
 type Poly{T<:Number}
     a::Vector{T}
-    nzfirst::Int #for effiencicy, track the first non-zero index
     function Poly(a::Vector{T})
-        nzfirst = 0 #find and chop leading zeros
-        for i = 1:length(a)
-            if a[i] != 0 then
-                break
-            end
-            nzfirst = i
-        end
-        new(a, nzfirst)
+        new(a)
     end
 end
 
 Poly{T<:Number}(a::Vector{T}) = Poly{T}(a)
 
-length(p::Poly) = length(p.a)-p.nzfirst
+promote_rule{T}(::Type{T},::Type{Poly{T}}) = Poly{T}
+
+length(p::Poly) = length(p.a)-1
 endof(p::Poly) = length(p)
-ref(p::Poly, i) = p.a[i+p.nzfirst]
-assign(p::Poly, v, i) = (p.a[i+p.nzfirst] = v)
+getindex{T}(p::Poly{T}, i) = (i+1 > length(p.a) ? zero(T) : p.a[i+1])
+function setindex!(p::Poly, v, i) 
+    n = length(p.a)
+    if n < i+1
+        resize!(p.a,i+1)
+        p.a[n:i] = 0
+    end
+    p.a[i+1] = v
+    v
+end
 
-copy(p::Poly) = Poly(copy(p.a[1+p.nzfirst:end]))
+copy(p::Poly) = Poly(copy(p.a))
 
-zero{T}(p::Poly{T}) = Poly([zero(T)])
-one{T}(p::Poly{T}) = Poly([one(T)])
+zero{T}(p::Poly{T}) = zero(Poly{T})
+zero{T}(::Type{Poly{T}}) = Poly(T[])
+one{T}(p::Poly{T}) = one(Poly{T})
+one{T}(::Type{Poly{T}}) = Poly([one(T)])
 
-function show(io::IO,p::Poly)
+function print_exponent{T}(io::IO,p::Poly{T},i,first)
+    if p[i] == zero(T)
+        return false
+    end
+    if first != true
+        print(io," + ")
+    end
+    if p[i] != one(T) || i == 0
+        show(io,p[i])
+    end
+    if i == 0
+    elseif i == 1
+        print(io,"x")
+    else
+        print(io,"x^",i)
+    end
+    true
+end
+
+function show{T}(io::IO,p::Poly{T})
     n = length(p)
     print(io,"Poly(")
-    if n <= 0
-        print(io,"0")
-    elseif n == 1
-        print(io,p[1])
-    else
-        print(io,"$(p[1])x^$(n-1)");
-        for i = 2:n-1
-            if p[i] != 0
-                print(io," + $(p[i])x^$(n-i)")
-            end
-        end
-        if p[n] != 0
-            print(io," + $(p[n])")
-        end
+    first = true
+    printed_anything = false
+    for i = 0:n
+        printed = print_exponent(io,p,i,first)
+        first &= !printed
+        printed_anything |= printed
     end
+    printed_anything || print(io,zero(T))
     print(io,")")
 end
 
-function show{T<:Complex}(p::Poly{T})
-    n = length(p)
-    print("Poly(")
-    if n <= 0
-        print("0")
-    elseif n == 1
-        print("[$(p[1])]")
-    else
-        print("[$(p[1])]x^$(n-1)")
-        for i = 2:n-1
-            if p[i] != 0
-                print(" + [$(p[i])]x^$(n-i)")
-            end
-        end
-        if p[n] != 0
-            print(" + [$(p[n])]")
-        end
-    end
-    print(")")
-end
-
-*(c::Number, p::Poly) = Poly(c * p.a[1+p.nzfirst:end])
-*(p::Poly, c::Number) = Poly(c * p.a[1+p.nzfirst:end])
-/(p::Poly, c::Number) = Poly(p.a[1+p.nzfirst:end] / c)
--(p::Poly) = Poly(-p.a[1+p.nzfirst:end])
+*{T<:Number,S}(c::T, p::Poly{S}) = Poly(c * p.a)
+*{T<:Number,S}(p::Poly{S}, c::T) = Poly(p.a * c)
+/(p::Poly, c::Number) = Poly(p.a / c)
+-(p::Poly) = Poly(-p.a)
 
 -(p::Poly, c::Number) = +(p, -c)
 +(c::Number, p::Poly) = +(p, c)
@@ -90,186 +83,54 @@ function +(p::Poly, c::Number)
         return Poly([c,])
     else
         p2 = copy(p)
-        p2.a[end] += c;
+        p2.a[1] += c;
         return p2;
     end
 end
-function -(c::Number, p::Poly)
+function -{T}(c::Number, p::Poly{T})
     if length(p) < 1
-        return Poly([c,])
+        return Poly(T[c,])
     else
         p2 = -p;
-        p2.a[end] += c;
+        p2.a[1] += c;
         return p2;
     end
 end
 
-function +{T,S}(p1::Poly{T}, p2::Poly{S})
-    R = promote_type(T,S)
-    n = length(p1)
-    m = length(p2)
-    if n > m
-        a = Array(R, n)
-        for i = 1:m
-            a[n-m+i] = p1[n-m+i] + p2[i]
-        end
-        for i = 1:n-m
-            a[i] = p1[i]
-        end
-    else
-        a = Array(R, m)
-        for i = 1:n
-            a[m-n+i] = p1[i] + p2[m-n+i]
-        end
-        for i = 1:m-n
-            a[i] = p2[i]
-        end
-    end
-    Poly(a)
-end
-
-function -{T,S}(p1::Poly{T}, p2::Poly{S})
-    R = promote_type(T,S)
-    n = length(p1)
-    m = length(p2)
-    if n > m
-        a = Array(R, n)
-        for i = 1:m
-            a[n-m+i] = p1[n-m+i] - p2[i]
-        end
-        for i = 1:n-m
-            a[i] = p1[i]
-        end
-    else
-        a = Array(R, m)
-        for i = 1:n
-            a[m-n+i] = p1[i] - p2[m-n+i]
-        end
-        for i = 1:m-n
-            a[i] = -p2[i]
-        end
-    end
-    Poly(a)
-end
++{T,S}(p1::Poly{T}, p2::Poly{S}) = Poly([p1[i] + p2[i] for i = 0:max(length(p1),length(p2))])
+-{T,S}(p1::Poly{T}, p2::Poly{S}) = Poly([p1[i] - p2[i] for i = 0:max(length(p1),length(p2))])
 
 function *{T,S}(p1::Poly{T}, p2::Poly{S})
     R = promote_type(T,S)
     n = length(p1)
     m = length(p2)
-    if n == 0 || m == 0
-        return Poly(R[])
-    end
-    a = zeros(R, n+m-1)
-    for i = 1:length(p1)
-        for j = 1:length(p2)
-            a[i+j-1] += p1[i] * p2[j]
+    a = Poly(zeros(R,m+n+2))
+    for i = 0:length(p1)
+        for j = 0:length(p2)
+            a[i+j] += p1[i] * p2[j]
         end
     end
-    Poly(a)
+    a
 end
 
 
 function ==(p1::Poly, p2::Poly)
-    if length(p1) != length(p2)
-        return false
-    else
-        return p1.a[1+p1.nzfirst:end] == p2.a[1+p2.nzfirst:end]
-    end
-end
-
-function polyval{T}(p::Poly{T}, x::Number)
-    R = promote_type(T, typeof(x))
-    lenp = length(p)
-    if lenp == 0
-        return zero(R)
-    else
-        y = convert(R, p[1])
-        for i = 2:lenp
-            y = p[i] + x.*y
+    if
+        for i = 1:max(length(p1),length(p2))
+            if p1[i] != p2_2[i]
+                return false    
+            end
         end
-        return y
     end
+    return true
 end
 
-function polyval(p::Poly, x::AbstractVector)
-    y = zeros(size(x))
-    for i = 1:length(x)
-        y[i] = polyval(p, x[i])
+function papply{T,S}(p1::Poly{T},x::S)
+    ret = zero(x)
+    for i = 0:length(p1)
+        ret += p1[i] .* x^i
     end
-    return y
-end
-
-polyint(p::Poly) = polyint(p, 0)
-function polyint{T}(p::Poly{T}, k::Number)
-    R = promote_type(promote_type(T, Float64), typeof(k))
-    n = length(p)
-    a2 = Array(R, n+1)
-    for i = 1:n
-        a2[i] = p[i] / (n-i+1)
-    end
-    a2[end] = k
-    Poly(a2)
-end
-
-function polydir{T}(p::Poly{T})
-    n = length(p)
-    if n > 0
-        a2 = Array(T, n-1)
-        for i = 1:n-1
-            a2[i] = p[i] * (n-i)
-        end
-    else
-        a2 = zeros(T, 0)
-    end
-    Poly(a2)
-end
-
-# create a Poly object from its roots
-function poly{T}(r::AbstractVector{T})
-    n = length(r)
-    c = zeros(T, n+1)
-    c[1] = 1
-    for j = 1:n
-        c[2:j+1] = c[2:j+1]-r[j]*c[1:j]
-    end
-    return Poly(c)
-end
-poly(A::Matrix) = poly(eig(A)[1])
-
-# compute the roots of a polynomial
-function roots{T}(p::Poly{T})
-    num_zeros = 0
-    if length(p) == 0 return zeros(T,0) end
-    while p[end-num_zeros] == 0
-        if num_zeros == length(p)-1
-            return zeros(T, 0)
-        end
-        num_zeros += 1
-    end
-    n = length(p)-num_zeros-1
-    if n < 1
-        return zeros(T, length(p)-1)
-    end
-    R = promote_type(T, Float64)
-    companion = zeros(R, n, n)
-    a0 = p[end-num_zeros]
-    for i = 1:n-1
-        companion[1,i] = -p[end-num_zeros-i] / a0
-        companion[i+1,i] = 1;
-    end
-    companion[1,end] = -p[1] / a0
-    D,V = eig(companion)
-    T_r = typeof(real(D[1]))
-    T_i = typeof(imag(D[1]))
-    if all(imag(D) .< 2*eps(T_i))
-        r = zeros(T_r, length(p)-1)
-        r[1:n] = 1./real(D)
-        return r
-    else
-        r = zeros(typeof(D[1]),length(p)-1)
-        r[1:n] = 1./D
-        return r
-    end
+    ret
 end
 
 end # module Poly

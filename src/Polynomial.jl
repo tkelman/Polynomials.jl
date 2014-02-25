@@ -1,8 +1,8 @@
-# Poly type manipulations
+    # Poly type manipulations
 
 module Polynomial
 
-export Poly, polyval, polyint, polydir, poly, roots, papply
+export Poly, polyval, polyint, polydir, poly, roots, papply, integrate, derivative
 
 import Base.length, Base.endof, Base.getindex, Base.setindex!, Base.copy, Base.zero, Base.one, Base.promote_rule
 import Base.show, Base.*, Base./, Base.-, Base.+, Base.==
@@ -13,6 +13,8 @@ type Poly{T<:Number}
         new(a)
     end
 end
+
+immutable PolynomialUnit{s}; end
 
 Poly{T<:Number}(a::Vector{T}) = Poly{T}(a)
 
@@ -132,5 +134,10 @@ function papply{T,S}(p1::Poly{T},x::S)
     end
     ret
 end
+
+integrate(p::Poly) = Poly([0;[1/(n+1)*p[n] for n=0:length(p)]])
+derivative(p::Poly) = Poly([ n*p[n] for n=1:length(p) ])
+derivative(vec::Vector) = map(derivative,vec)
+derivative(x::Number) = 0
 
 end # module Poly

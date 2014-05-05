@@ -321,8 +321,8 @@ function roots{T}(p::Poly{T})
     companion = zeros(R, n, n)
     an = p[end-num_trailing_zeros]
     for i = 1:n-1
-        companion[i,n] = -p[num_leading_zeros + i - 1] / an
-        companion[i+1,i] = 1;
+        companion[n,i] = -p[num_leading_zeros + i - 1] / an
+        companion[i,i+1] = 1;
     end
     companion[end,end] = -p[end-num_trailing_zeros-1] / an
     D = eigvals(companion)
